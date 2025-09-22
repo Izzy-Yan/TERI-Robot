@@ -30,6 +30,7 @@ try:
     # FIX: Import from shared_camera.py instead of common
     from shared_camera import init_shared_camera, capture_shared_frame, stop_shared_camera
     from place_recognition import place_recognizer
+    from sleep_mode import sleep_mode
     logger.info("All modules imported successfully")
 except ImportError as e:
     logger.critical(f"Failed to import required modules: {e}")
@@ -62,6 +63,10 @@ MOUTH_CHANGE_TIME = 0.15  # Faster mouth animation for talking
 # Speech timing settings
 TTS_STARTUP_DELAY = 0.2  # Seconds to wait before starting mouth animation
 SPEECH_RATE = 2.5  # Words per second for your TTS system
+
+# Sleep mode settings
+SLEEP_BRIGHTNESS_MULTIPLIER = 0.4  # 40% brightness in sleep mode (60% dimmed)
+NORMAL_BRIGHTNESS_MULTIPLIER = 1.0  # 100% brightness when awake
 
 # Image paths
 CLOSED_MOUTH_IMAGE = "/home/Izzy/TERI/closed.png"
@@ -112,6 +117,10 @@ class State:
         # How long each repeated movement command should ask the motors to move (seconds)
         # (keeps each small so repeated calls feel smooth)
         self.move_duration = 0.15
+        
+        # Sleep mode state
+        self.sleep_brightness = SLEEP_BRIGHTNESS_MULTIPLIER
+        self.normal_brightness = NORMAL_BRIGHTNESS_MULTIPLIER
 
 # Initialize state object
 state = State()
@@ -194,6 +203,21 @@ def scale_face_images(width, height):
     except Exception as e:
         logger.error(f"Failed to scale face images: {e}")
         return False
+
+# ============= Sleep Mode Functions =============
+def apply_sleep_brightness(surface):
+    """Apply sleep mode brightness to a surface"""
+    if sleep_mode.is_sleeping:
+        # Create a dark overlay
+        overlay = pygame.Surface(surface.get_size())
+        overlay.fill((0, 0, 0))
+        overlay.set_alpha(int(255 * (1.0 - state.sleep_brightness)))
+        surface.blit(overlay, (0, 0))
+    return surface
+
+def get_current_brightness():
+    """Get current brightness multiplier based on sleep mode"""
+    return state.sleep_brightness if sleep_mode.is_sleeping else state.normal_brightness
 
 # ============= UI Initialization =============
 def initialize_ui():
@@ -306,25 +330,37 @@ def update_mouth_animation():
 
 def draw_buttons(window, exit_button, mode_button):
     """Draw control buttons on screen"""
+    brightness = get_current_brightness()
+    
+    # Adjust button colors based on sleep mode
+    if sleep_mode.is_sleeping:
+        exit_color = (int(255 * brightness), 0, 0)
+        mode_color = (0, 0, int(255 * brightness))
+        line_color = (int(255 * brightness), int(255 * brightness), int(255 * brightness))
+    else:
+        exit_color = (255, 0, 0)
+        mode_color = (0, 0, 255)
+        line_color = (255, 255, 255)
+    
     # Exit button (red X)
-    pygame.draw.rect(window, (255, 0, 0), exit_button)
-    pygame.draw.line(window, (255, 255, 255), 
+    pygame.draw.rect(window, exit_color, exit_button)
+    pygame.draw.line(window, line_color, 
                    (exit_button.left + 5, exit_button.top + 5),
                    (exit_button.right - 5, exit_button.bottom - 5), 3)
-    pygame.draw.line(window, (255, 255, 255), 
+    pygame.draw.line(window, line_color, 
                    (exit_button.right - 5, exit_button.top + 5),
                    (exit_button.left + 5, exit_button.bottom - 5), 3)
     
     # Mode button (circular arrow)
-    pygame.draw.rect(window, (0, 0, 255), mode_button)
-    pygame.draw.circle(window, (255, 255, 255), 
+    pygame.draw.rect(window, mode_color, mode_button)
+    pygame.draw.circle(window, line_color, 
                      (mode_button.centerx, mode_button.centery), 
                      10, 2)
     # Draw arrow part of the mode toggle
-    pygame.draw.line(window, (255, 255, 255),
+    pygame.draw.line(window, line_color,
                    (mode_button.centerx, mode_button.centery - 5),
                    (mode_button.centerx + 5, mode_button.centery), 2)
-    pygame.draw.line(window, (255, 255, 255),
+    pygame.draw.line(window, line_color,
                    (mode_button.centerx + 5, mode_button.centery),
                    (mode_button.centerx, mode_button.centery + 5), 2)
 
@@ -334,16 +370,30 @@ def draw_face_display(window, width, height):
     if state.closed_mouth_scaled is None or state.open_mouth_scaled is None:
         # Show placeholder if images not loaded
         window.fill((0, 0, 0))
+        brightness = get_current_brightness()
         font = pygame.font.Font(None, UI_FONT_SIZE)
-        text = font.render("Face images not loaded", True, (255, 255, 255))
+        text_color = (int(255 * brightness), int(255 * brightness), int(255 * brightness))
+        text = font.render("Face images not loaded", True, text_color)
         window.blit(text, (width // 2 - text.get_width() // 2, height // 2))
         return
     
     # Display the appropriate image based on mouth state
     if state.mouth_state == "open":
-        window.blit(state.open_mouth_scaled, (0, 0))
+        face_surface = state.open_mouth_scaled.copy()
     else:
-        window.blit(state.closed_mouth_scaled, (0, 0))
+        face_surface = state.closed_mouth_scaled.copy()
+    
+    # Apply sleep mode brightness
+    if sleep_mode.is_sleeping:
+        face_surface = apply_sleep_brightness(face_surface)
+    
+    window.blit(face_surface, (0, 0))
+    
+    # Add sleep mode indicator
+    if sleep_mode.is_sleeping:
+        font = pygame.font.Font(None, 48)
+        sleep_text = font.render("Sleep Mode", True, (100, 100, 150))
+        window.blit(sleep_text, (UI_MARGIN, height - 60))
 
 def draw_video_display(window, width, height):
     """Draw the camera video feed display"""
@@ -379,29 +429,46 @@ def draw_video_display(window, width, height):
         
         # Convert to pygame surface
         pygame_frame = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
+        
+        # Apply sleep mode brightness
+        if sleep_mode.is_sleeping:
+            pygame_frame = apply_sleep_brightness(pygame_frame)
+        
         window.blit(pygame_frame, (0, 0))
+        
+        # Add sleep mode indicator
+        if sleep_mode.is_sleeping:
+            font = pygame.font.Font(None, 48)
+            sleep_text = font.render("Sleep Mode", True, (100, 100, 150))
+            window.blit(sleep_text, (UI_MARGIN, height - 60))
     else:
         # Show "No Camera Feed" message
+        brightness = get_current_brightness()
         font = pygame.font.Font(None, UI_FONT_SIZE)
-        text = font.render("No Camera Feed Available", True, (255, 0, 0))
+        text_color = (int(255 * brightness), 0, 0)
+        text = font.render("No Camera Feed Available", True, text_color)
         window.blit(text, (width // 2 - text.get_width() // 2, height // 2))
 
 def draw_modern_motor_controls(window, width, height):
     """Draw a modern motor control interface"""
-    # Fill with dark background
-    window.fill((20, 20, 30))
+    brightness = get_current_brightness()
+    
+    # Fill with dark background (adjusted for sleep mode)
+    bg_color = (int(20 * brightness), int(20 * brightness), int(30 * brightness))
+    window.fill(bg_color)
     
     # Add title
     font = pygame.font.Font(None, UI_FONT_SIZE)
-    title = font.render("Movement Control", True, (220, 220, 240))
+    title_color = (int(220 * brightness), int(220 * brightness), int(240 * brightness))
+    title = font.render("Movement Control", True, title_color)
     window.blit(title, (width // 2 - title.get_width() // 2, height // 8))
     
-    # Draw modern control buttons
+    # Draw modern control buttons with sleep mode adjustments
     control_colors = {
-        "normal": (40, 42, 54),
-        "hover": (80, 82, 94),
-        "border": (100, 180, 220),
-        "text": (220, 220, 240)
+        "normal": (int(40 * brightness), int(42 * brightness), int(54 * brightness)),
+        "hover": (int(80 * brightness), int(82 * brightness), int(94 * brightness)),
+        "border": (int(100 * brightness), int(180 * brightness), int(220 * brightness)),
+        "text": (int(220 * brightness), int(220 * brightness), int(240 * brightness))
     }
     
     # Get mouse position for hover effects
@@ -459,6 +526,12 @@ def draw_modern_motor_controls(window, width, height):
                 (rect.centerx, rect.centery + rect.height // 5)
             ]
             pygame.draw.polygon(window, arrow_color, points)
+    
+    # Add sleep mode indicator
+    if sleep_mode.is_sleeping:
+        font = pygame.font.Font(None, 48)
+        sleep_text = font.render("Sleep Mode", True, (100, 100, 150))
+        window.blit(sleep_text, (UI_MARGIN, height - 60))
 
 def update_display(window, exit_button, mode_button, width, height):
     """Update the display based on current mode"""

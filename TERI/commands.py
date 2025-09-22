@@ -8,6 +8,7 @@ from tts_module import speak
 from audio_module import recognize_command
 from temporal_memory import temporal_memory
 from motor_control import move_forward, move_backward, turn_left, turn_right
+from sleep_mode import sleep_mode
 import os
 import sys
 from together import Together
@@ -102,9 +103,13 @@ class CommandHandler:
             
             # Help and Assistance
             "help": "I can help you with movement commands, face recognition, remembering your plans, answering questions, and much more! Just ask!",
-            "what commands do you know": "I know movement commands, volume controls, face recognition, time and date, jokes, facts, and can answer general questions!",
-            "how do i use you": "Just talk to me naturally! I can understand commands like 'move forward', 'tell me a joke', 'what time is it', and many others!",
-            "commands": "Try saying things like: move forward, turn left, tell me a joke, what time is it, recognize face, where are we, or just ask me questions!",
+            "what commands do you know": "I know movement commands, volume controls, face recognition, time and date, jokes, facts, sleep mode, and can answer general questions!",
+            "how do i use you": "Just talk to me naturally! I can understand commands like 'move forward', 'tell me a joke', 'what time is it', 'enter sleep mode', and many others!",
+            "commands": "Try saying things like: move forward, turn left, tell me a joke, what time is it, recognize face, where are we, enter sleep mode, or just ask me questions!",
+            
+            # Sleep Mode Commands
+            "sleep status": self._get_sleep_status,
+            "are you sleeping": self._get_sleep_status,
         }
 
     def _get_random_joke(self):
@@ -182,6 +187,14 @@ class CommandHandler:
             "My batteries are running strong!"
         ]
         return random.choice(battery_responses)
+
+    def _get_sleep_status(self):
+        """Return current sleep mode status"""
+        status = sleep_mode.get_sleep_status()
+        if status['is_sleeping']:
+            return f"I am currently in sleep mode. My next alarm is set for {status['next_alarm']}."
+        else:
+            return f"I am awake and active. My next weekday alarm is scheduled for {status['next_alarm']}."
 
     def together_ai_response(self, prompt):
         """Get response from Together AI with improved error handling"""
@@ -267,6 +280,26 @@ class CommandHandler:
 
         return False
 
+    def handle_sleep_commands(self, command):
+        """Handle sleep mode commands"""
+        if any(phrase in command for phrase in ["enter sleep mode", "go to sleep", "sleep mode"]):
+            if sleep_mode.enter_sleep_mode():
+                speak("Entering sleep mode.")
+                return True
+            else:
+                speak("I'm already in sleep mode.")
+                return True
+                
+        if any(phrase in command for phrase in ["exit sleep mode", "wake up", "stop sleeping"]):
+            if sleep_mode.exit_sleep_mode():
+                speak("Exiting sleep mode. I'm now fully awake!")
+                return True
+            else:
+                speak("I'm already awake and active!")
+                return True
+                
+        return False
+
     def handle_temporal_commands(self, command):
         """Handle temporal memory commands"""
         if ("going to" in command or "plan to" in command) and any(
@@ -333,31 +366,35 @@ class CommandHandler:
 
         # Try each command type in order of priority
         try:
-            # 1. Place recognition
+            # 1. Sleep mode commands (high priority)
+            if self.handle_sleep_commands(command):
+                return
+
+            # 2. Place recognition
             if self.handle_place_recognition(command):
                 return
 
-            # 2. Temporal memory commands
+            # 3. Temporal memory commands
             if self.handle_temporal_commands(command):
                 return
 
-            # 3. Movement commands
+            # 4. Movement commands
             if self.handle_movement_commands(command):
                 return
 
-            # 4. Volume control
+            # 5. Volume control
             if self.handle_volume_control(command):
                 return
 
-            # 5. Face recognition
+            # 6. Face recognition
             if self.handle_face_recognition(command, face_module):
                 return
 
-            # 6. Built-in commands
+            # 7. Built-in commands
             if self.handle_built_in_command(command):
                 return
 
-            # 7. AI response as fallback
+            # 8. AI response as fallback
             ai_response = self.together_ai_response(command)
             if ai_response:
                 speak(ai_response)
