@@ -69,8 +69,8 @@ SLEEP_BRIGHTNESS_MULTIPLIER = 0.4  # 40% brightness in sleep mode (60% dimmed)
 NORMAL_BRIGHTNESS_MULTIPLIER = 1.0  # 100% brightness when awake
 
 # Image paths
-CLOSED_MOUTH_IMAGE = "/home/Izzy/TERI/closed.png"
-OPEN_MOUTH_IMAGE = "/home/Izzy/TERI/open.png"
+CLOSED_MOUTH_IMAGE = "/home/Izzy/TERI//TERI/closed.png"
+OPEN_MOUTH_IMAGE = "/home/Izzy/TERI//TERI/open.png"
 
 # ============= Global State =============
 class State:
