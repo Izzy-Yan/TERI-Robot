@@ -6,7 +6,7 @@ import random
 from datetime import datetime
 from tts_module import speak
 from audio_module import recognize_command
-from temporal_memory import temporal_memory
+from temporal_memory import temporal_memory, EventType, Priority
 from motor_control import move_forward, move_backward, turn_left, turn_right
 from sleep_mode import sleep_mode
 import os
@@ -301,18 +301,120 @@ class CommandHandler:
         return False
 
     def handle_temporal_commands(self, command):
-        """Handle temporal memory commands"""
-        if ("going to" in command or "plan to" in command) and any(
-            kw in command for kw in ["tomorrow", "today", "tonight", "later", "next week"]
-        ):
-            temporal_memory.save_event(command)
-            speak("Okay, I've noted your plan and will remember it.")
-            return True
-
-        if any(phrase in command for phrase in ["where am i going", "what's my plan", "what am i doing"]):
-            event = temporal_memory.get_event(command)
-            speak(event if event else "I don't have any plans recorded for you right now.")
-            return True
+        """Enhanced temporal memory command handling"""
+        command_lower = command.lower()
+        
+        # Save events/reminders
+        if any(phrase in command_lower for phrase in [
+            "remind me", "remember", "don't forget", "appointment", "meeting",
+            "going to", "plan to", "schedule", "set a reminder", "add to calendar"
+        ]):
+            try:
+                event_id = temporal_memory.save_event(command)
+                if event_id:
+                    speak("I've saved that to your schedule. I'll remember it for you.")
+                else:
+                    speak("I had trouble saving that. Could you try rephrasing it?")
+                return True
+            except Exception as e:
+                print(f"Error saving event: {e}")
+                speak("I had trouble saving that event. Please try again.")
+                return True
+        
+        # Query events
+        if any(phrase in command_lower for phrase in [
+            "what's my schedule", "what am i doing", "what's planned", "my events",
+            "what's today", "what's tomorrow", "what's next", "upcoming events"
+        ]):
+            try:
+                summary = temporal_memory.get_event_summary(command)
+                if summary == "No events found.":
+                    if "today" in command_lower:
+                        speak("You have nothing scheduled for today.")
+                    elif "tomorrow" in command_lower:
+                        speak("You have nothing scheduled for tomorrow.")
+                    else:
+                        speak("You don't have any upcoming events.")
+                else:
+                    speak(f"Here's what you have: {summary}")
+                return True
+            except Exception as e:
+                print(f"Error retrieving events: {e}")
+                speak("I had trouble checking your schedule.")
+                return True
+        
+        # Complete events
+        if any(phrase in command_lower for phrase in [
+            "mark as done", "completed", "finished", "mark complete", "done with"
+        ]):
+            try:
+                events = temporal_memory.search_events(command)
+                if events:
+                    temporal_memory.complete_event(events[0].id)
+                    speak("I've marked that as completed.")
+                else:
+                    speak("I couldn't find that event to mark as complete.")
+                return True
+            except Exception as e:
+                print(f"Error completing event: {e}")
+                speak("I had trouble marking that as complete.")
+                return True
+        
+        # Delete events
+        if any(phrase in command_lower for phrase in [
+            "cancel", "delete", "remove", "forget about"
+        ]) and any(phrase in command_lower for phrase in [
+            "appointment", "meeting", "event", "reminder", "plan"
+        ]):
+            try:
+                events = temporal_memory.search_events(command)
+                if events:
+                    temporal_memory.delete_event(events[0].id)
+                    speak("I've deleted that from your schedule.")
+                else:
+                    speak("I couldn't find that event to delete.")
+                return True
+            except Exception as e:
+                print(f"Error deleting event: {e}")
+                speak("I had trouble deleting that event.")
+                return True
+        
+        # Show overdue events
+        if any(phrase in command_lower for phrase in [
+            "overdue", "missed", "what did i miss", "past due"
+        ]):
+            try:
+                overdue = temporal_memory.get_overdue_events()
+                if not overdue:
+                    speak("You don't have any overdue events. Good job!")
+                else:
+                    count = len(overdue)
+                    speak(f"You have {count} overdue event{'s' if count != 1 else ''}.")
+                    # Read first few overdue events
+                    for event in overdue[:3]:
+                        speak(f"{event.text} was due on {event.date_time.strftime('%B %d')}.")
+                return True
+            except Exception as e:
+                print(f"Error checking overdue events: {e}")
+                speak("I had trouble checking for overdue events.")
+                return True
+        
+        # Show statistics
+        if any(phrase in command_lower for phrase in [
+            "event stats", "schedule stats", "how many events"
+        ]):
+            try:
+                stats = temporal_memory.get_stats()
+                total = stats['total_events']
+                upcoming = stats['upcoming_events']
+                completed = stats['completed_events']
+                
+                speak(f"You have {total} total events, {upcoming} upcoming, and {completed} completed.")
+                return True
+            except Exception as e:
+                print(f"Error getting stats: {e}")
+                speak("I had trouble getting your event statistics.")
+                return True
 
         return False
 
@@ -370,12 +472,12 @@ class CommandHandler:
             if self.handle_sleep_commands(command):
                 return
 
-            # 2. Place recognition
-            if self.handle_place_recognition(command):
+            # 2. Temporal memory commands (high priority for reminders/schedules)
+            if self.handle_temporal_commands(command):
                 return
 
-            # 3. Temporal memory commands
-            if self.handle_temporal_commands(command):
+            # 3. Place recognition
+            if self.handle_place_recognition(command):
                 return
 
             # 4. Movement commands
