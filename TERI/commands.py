@@ -1,4 +1,3 @@
-# commands.py
 import re
 import subprocess
 import time
@@ -178,7 +177,6 @@ class CommandHandler:
 
     def _get_battery_status(self):
         """Return battery status (simulated)"""
-        # In a real implementation, this would check actual battery levels
         battery_responses = [
             "I'm running on battery power and feeling energized!",
             "My energy levels are good! Ready for action!",
@@ -246,36 +244,30 @@ class CommandHandler:
 
     def handle_movement_commands(self, command):
         """Handle movement-related commands"""
-        # Forward movement
         if "forward" in command and "backward" not in command:
             feet = self.extract_feet(command)
             speak(f"Moving forward for {feet} foot{'s' if feet != 1 else ''}.")
             move_forward(feet)
             return True
 
-        # Backward movement
         if "backward" in command or "back up" in command:
             feet = self.extract_feet(command)
             speak(f"Moving backward for {feet} foot{'s' if feet != 1 else ''}.")
             move_backward(feet)
             return True
 
-        # Turn left
         if "turn left" in command or "left turn" in command:
             speak("Turning left.")
             turn_left()
             return True
 
-        # Turn right
         if "turn right" in command or "right turn" in command:
             speak("Turning right.")
             turn_right()
             return True
 
-        # Stop command
         if "stop" in command or "halt" in command:
             speak("Stopping all movement.")
-            # Add stop function call here if available
             return True
 
         return False
@@ -304,7 +296,6 @@ class CommandHandler:
         """Enhanced temporal memory command handling"""
         command_lower = command.lower()
         
-        # Save events/reminders
         if any(phrase in command_lower for phrase in [
             "remind me", "remember", "don't forget", "appointment", "meeting",
             "going to", "plan to", "schedule", "set a reminder", "add to calendar"
@@ -321,7 +312,6 @@ class CommandHandler:
                 speak("I had trouble saving that event. Please try again.")
                 return True
         
-        # Query events
         if any(phrase in command_lower for phrase in [
             "what's my schedule", "what am i doing", "what's planned", "my events",
             "what's today", "what's tomorrow", "what's next", "upcoming events"
@@ -343,7 +333,6 @@ class CommandHandler:
                 speak("I had trouble checking your schedule.")
                 return True
         
-        # Complete events
         if any(phrase in command_lower for phrase in [
             "mark as done", "completed", "finished", "mark complete", "done with"
         ]):
@@ -360,7 +349,6 @@ class CommandHandler:
                 speak("I had trouble marking that as complete.")
                 return True
         
-        # Delete events
         if any(phrase in command_lower for phrase in [
             "cancel", "delete", "remove", "forget about"
         ]) and any(phrase in command_lower for phrase in [
@@ -379,7 +367,6 @@ class CommandHandler:
                 speak("I had trouble deleting that event.")
                 return True
         
-        # Show overdue events
         if any(phrase in command_lower for phrase in [
             "overdue", "missed", "what did i miss", "past due"
         ]):
@@ -390,7 +377,6 @@ class CommandHandler:
                 else:
                     count = len(overdue)
                     speak(f"You have {count} overdue event{'s' if count != 1 else ''}.")
-                    # Read first few overdue events
                     for event in overdue[:3]:
                         speak(f"{event.text} was due on {event.date_time.strftime('%B %d')}.")
                 return True
@@ -399,7 +385,6 @@ class CommandHandler:
                 speak("I had trouble checking for overdue events.")
                 return True
         
-        # Show statistics
         if any(phrase in command_lower for phrase in [
             "event stats", "schedule stats", "how many events"
         ]):
@@ -419,8 +404,23 @@ class CommandHandler:
         return False
 
     def handle_place_recognition(self, command):
-        """Handle place recognition commands"""
-        if any(phrase in command for phrase in ["where are we", "where am i", "what place is this"]):
+        """Handle place recognition commands - IMPROVED MATCHING"""
+        command_lower = command.lower()
+        
+        # More flexible matching for place recognition
+        place_triggers = [
+            "where are we",
+            "where am i", 
+            "what place is this",
+            "what place",
+            "where is this",
+            "identify location",
+            "recognize place",
+            "what location"
+        ]
+        
+        if any(trigger in command_lower for trigger in place_triggers):
+            print("[Commands] Place recognition triggered")
             place = place_recognizer.recognize_place()
             if place:
                 speak(f"We are in {place}.")
@@ -436,8 +436,25 @@ class CommandHandler:
         return False
 
     def handle_face_recognition(self, command, face_module):
-        """Handle face recognition commands"""
-        if any(phrase in command for phrase in ["recognize face", "who is here", "who is this", "scan face"]):
+        """Handle face recognition commands - IMPROVED MATCHING"""
+        command_lower = command.lower()
+        
+        # More flexible matching for face recognition
+        face_triggers = [
+            "recognize face",
+            "detect face",
+            "who is here",
+            "who is this",
+            "scan face",
+            "identify face",
+            "recognize person",
+            "who am i",
+            "do you know me",
+            "facial recognition"
+        ]
+        
+        if any(trigger in command_lower for trigger in face_triggers):
+            print("[Commands] Face recognition triggered")
             face_module.handle_face_recognition(speak, recognize_command)
             return True
         return False
@@ -446,7 +463,6 @@ class CommandHandler:
         """Handle built-in commands with priority matching"""
         command_clean = self.clean_text(command)
         
-        # Check for exact matches first, then partial matches
         for key, response in self.built_in_commands.items():
             if key == command_clean or key in command_clean:
                 if callable(response):
@@ -457,8 +473,7 @@ class CommandHandler:
         return False
 
     def handle_command(self, command, face_module):
-        """Main command handler with improved error handling"""
-        # Handle case where command is None or empty
+        """Main command handler with improved priority order"""
         if not command or not command.strip():
             speak(random.choice(self.didnt_understand_responses))
             return
@@ -466,30 +481,31 @@ class CommandHandler:
         command = command.strip()
         print(f"Processing command: {command}")
 
-        # Try each command type in order of priority
         try:
-            # 1. Sleep mode commands (high priority)
-            if self.handle_sleep_commands(command):
+            # PRIORITY ORDER - Check specialized commands FIRST
+            
+            # 1. Face recognition (HIGH PRIORITY)
+            if self.handle_face_recognition(command, face_module):
                 return
 
-            # 2. Temporal memory commands (high priority for reminders/schedules)
-            if self.handle_temporal_commands(command):
-                return
-
-            # 3. Place recognition
+            # 2. Place recognition (HIGH PRIORITY)
             if self.handle_place_recognition(command):
                 return
 
-            # 4. Movement commands
+            # 3. Sleep mode commands
+            if self.handle_sleep_commands(command):
+                return
+
+            # 4. Temporal memory commands
+            if self.handle_temporal_commands(command):
+                return
+
+            # 5. Movement commands
             if self.handle_movement_commands(command):
                 return
 
-            # 5. Volume control
+            # 6. Volume control
             if self.handle_volume_control(command):
-                return
-
-            # 6. Face recognition
-            if self.handle_face_recognition(command, face_module):
                 return
 
             # 7. Built-in commands
